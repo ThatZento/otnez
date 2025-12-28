@@ -16,8 +16,18 @@ load_dotenv()
 # Configuration & Constants
 # ========================================
 
+# Load discord API key
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
-GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+# Load both Groq API keys
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')          # Primary key
+PANIC_API_GROQ = os.getenv('PANIC_API_GROQ')       # Backup / panic key
+
+if not GROQ_API_KEY:
+    print("ERROR: GROQ_API_KEY not found in .env!")
+    exit(1)
+
+if not PANIC_API_GROQ:
+    print("WARNING: PANIC_API_GROQ not set — no failover if primary key fails.")
 
 # Role name used for !assign and !removerole commands
 AGARTHA_ROLE_NAME = "agartha"
@@ -59,11 +69,13 @@ intents.message_content = True  # To read message content
 # Create the bot with ! prefix
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# Groq client (AsyncOpenAI works because Groq API is OpenAI-compatible)
+# Create initial client with primary key
 groq_client = AsyncOpenAI(
     api_key=GROQ_API_KEY,
     base_url="https://api.groq.com/openai/v1"
 )
+# Global flag to track if we've switched to panic key
+used_panic_key = False
 
 # Simple file logging for debugging (all bot events go to discord.log)
 logging.basicConfig(handlers=[logging.FileHandler('discord.log', 'w', 'utf-8')], level=logging.DEBUG)
@@ -108,8 +120,8 @@ async def on_ready():
 
     global random_words
     try:
-        with open(RANDOM_WORDS_FILE, 'r', encoding='utf-8') as f:
-            random_words = [line.strip() for line in f if line.strip()]
+        with open(RANDOM_WORDS_FILE, 'r', encoding='utf-8') as file:
+            random_words = [line.strip() for line in file if line.strip()]
         print(f"Loaded {len(random_words)} random words from {RANDOM_WORDS_FILE}.")
     except FileNotFoundError:
         print(f"Warning: {RANDOM_WORDS_FILE} not found — random word feature disabled.")
@@ -146,30 +158,25 @@ async def on_message(message):
     )
 
     if should_respond_with_ai:
-        async with message.channel.typing():  # Show typing indicator
+        async with message.channel.typing():
             try:
-                # Clean user input
-                # In DMs: no mention to remove → use full content
-                # In servers: remove the @mention if present
+                # Clean user input (same as before)
                 user_content = message.content
                 if message.guild and bot.user in message.mentions:
                     user_content = message.content.replace(f"<@{bot.user.id}>", "").strip()
 
-                # Fallback if message is empty after cleaning (e.g. just a mention)
                 if not user_content.strip():
                     user_content = "hey"
 
                 channel_id = message.channel.id
 
-                # Build message history for Groq
+                # Build messages
                 history = get_history(channel_id)
-                messages = [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                ]
+                messages = [{"role": "system", "content": SYSTEM_PROMPT}]
                 messages.extend(history)
                 messages.append({"role": "user", "content": user_content})
 
-                # Call Groq API
+                # First attempt with current client (primary or already-switched panic)
                 response = await groq_client.chat.completions.create(
                     model="llama-3.3-70b-versatile",
                     messages=messages,
@@ -180,18 +187,50 @@ async def on_message(message):
 
                 ai_reply = response.choices[0].message.content.strip()
 
-                # Safety: Discord max message length
-                if len(ai_reply) > 2000:
-                    ai_reply = ai_reply[:1997] + "..."
+            except Exception as primary_error:
+                print(f"Primary Groq API failed: {primary_error}")
 
-                await message.channel.send(ai_reply)
+                # Only try panic key if we haven't already used it and it exists
+                global used_panic_key
+                if not used_panic_key and PANIC_API_GROQ:
+                    print("Switching to PANIC_API_GROQ key...")
+                    # Recreate client with panic key
+                    groq_client.api_key = PANIC_API_GROQ
+                    used_panic_key = True
 
-                # Save conversation to history
-                add_to_history(channel_id, "user", user_content)
-                add_to_history(channel_id, "assistant", ai_reply)
+                    try:
+                        # Retry the exact same request with panic key
+                        response = await groq_client.chat.completions.create(
+                            model="llama-3.3-70b-versatile",
+                            messages=messages,
+                            max_tokens=600,
+                            temperature=0.8,
+                            top_p=0.9
+                        )
+                        ai_reply = response.choices[0].message.content.strip()
+                        await message.channel.send("(switched to backup key — still alive fr fr)")
 
-            except Exception as e:
-                await message.channel.send(f"AI error (check API key/rate limits): {str(e)}")
+                    except Exception as panic_error:
+                        print(f"Panic key also failed: {panic_error}")
+                        await message.channel.send(
+                            "Both API keys down... otenZ dying :sob::sob::sob::sob::sob::sob::sob:")
+                        # Don't save to history on full failure
+                        return  # Exit early — no history save
+                else:
+                    # Primary failed and no panic key (or already used)
+                    await message.channel.send(
+                        "Groq API down... no aura today :broken_heart::broken_heart::broken_heart:")
+                    return
+
+            # Success path (primary or panic key worked)
+            if len(ai_reply) > 2000:
+                ai_reply = ai_reply[:1997] + "..."
+
+            await message.channel.send(ai_reply)
+
+            # Save to history only on success
+            add_to_history(channel_id, "user", user_content)
+            add_to_history(channel_id, "assistant", ai_reply)
 
     # ------------------------------------------------------------------
     # Always process commands (!forget, !assign, etc.) — required!
