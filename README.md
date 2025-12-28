@@ -35,12 +35,15 @@ Everything is heavily commented and structured so you can tweak, replace, or exp
 3. Create a `.env` file in the root folder:
    
    DISCORD_TOKEN=your_bot_token_here
-   GROQ_API_KEY=your_groq_api_key_here
-   PANIC_API_GROQ=your_optional_backup_key_here  # optional
    
-4. (Optional) Edit `system_prompt.txt` → this completely controls the bot's personality  
-5. (Optional) Edit `random_words.txt` → one surprise word/phrase per line  
-6. Run locally:  
+   GROQ_API_KEY=your_groq_api_key_here
+
+   PANIC_API_GROQ=your_optional_backup_key_here  # optional
+
+   
+5. (Optional) Edit `system_prompt.txt` → this completely controls the bot's personality  
+6. (Optional) Edit `random_words.txt` → one surprise word/phrase per line  
+7. Run locally:  
    
    python main.py
    
