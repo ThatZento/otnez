@@ -63,11 +63,11 @@ Add more commands easily — the structure is ready for it.
 ## Customization
 
 - Change the bot's entire personality by editing `system_prompt.txt` only  
-- Swap the model in `main.py` (one line)  
+- Swap the model in `main.py` (line 203 for main, 233 for panic)  
 - Add/remove commands in `main.py`  
-- Modify role name, prefix, intents, etc. — all clearly marked  
-
-The bot has no fixed theme out of the box. Make it serious, chaotic, helpful, meme-filled — whatever you want.
+- Modify role name, prefix, intents, etc.
+- 
+The bot has no fixed theme out of the box. Make it whatever you want.
 
 ## Deployment
 
@@ -76,7 +76,6 @@ Set your start command to `python webserver.py` in Render/Railway/etc.
 
 ## Credits
 
-Personality concept, endless testing, and original brainrot energy by ThatZento  
-Code cleanup, structure, and documentation improvements by Grok (xAI)
+by ThatZento
 
 Enjoy building your perfect bot!
