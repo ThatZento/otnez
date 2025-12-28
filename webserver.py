@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "otenZ bot is alive and brainrotting! 67"
+    return "bot is alive."
 
 def run_bot():
     bot.run(DISCORD_TOKEN)
@@ -18,4 +18,5 @@ if __name__ == '__main__':
     bot_thread.start()
 
     port = int(os.environ.get('PORT', 5000))
+
     app.run(host='0.0.0.0', port=port)
