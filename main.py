@@ -20,22 +20,9 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 # Load both Groq API keys + openai keys
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')          # Primary key
-PANIC_API_GROQ = os.getenv('PANIC_API_GROQ')       # Backup / panic key
-OPENAI_OSS_API_KEY = os.getenv('OPENAI_OSS_API_KEY')  # Your OpenAI key for the OSS endpoint
-OPENAI_OSS_BASE_URL = "https://api.openai.com/v1"     # Standard OpenAI endpoint (works with OSS models)
 if not GROQ_API_KEY:
     print("ERROR: GROQ_API_KEY not found in .env!")
     exit(1)
-
-if not PANIC_API_GROQ:
-    print("WARNING: PANIC_API_GROQ not set — no failover if primary key fails.")
-
-if not OPENAI_OSS_API_KEY:
-    print("WARNING: OPENAI_OSS_API_KEY not set — no third-layer fallback if both Groq keys fail.")
-
-# Tracking which fallbacks we've used
-used_panic_key = False
-used_oss_fallback = False
 
 # Role name used for !assign and !removerole commands
 AGARTHA_ROLE_NAME = "agartha"
@@ -187,103 +174,55 @@ async def on_message(message):
 
     if should_respond_with_ai:
         async with message.channel.typing():
-            success = False
-            ai_reply = None
-
-            # Clean user input (same as always)
-            user_content = message.content
-            if message.guild and bot.user in message.mentions:
-                user_content = message.content.replace(f"<@{bot.user.id}>", "").strip()
-            if not user_content.strip():
-                user_content = "hey"
-
-            channel_id = message.channel.id
-            history = get_history(channel_id)
-            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-            messages.extend(history)
-            messages.append({"role": "user", "content": user_content})
-
-            # Current model to use
-            current_model = "llama-3.3-70b-versatile"
-
             try:
-                # FIRST ATTEMPT: Normal Groq model
+                # Clean user input
+                user_content = message.content
+                if message.guild and bot.user in message.mentions:
+                    user_content = message.content.replace(f"<@{bot.user.id}>", "").strip()
+
+                if not user_content.strip():
+                    user_content = "hey"
+
+                channel_id = message.channel.id
+                history = get_history(channel_id)
+
+                messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+                messages.extend(history)
+                messages.append({"role": "user", "content": user_content})
+
+                # SINGLE API CALL — you control the model here
                 response = await groq_client.chat.completions.create(
-                    model=current_model,
+                    model="openai/gpt-oss-120b",  # ← CHANGE THIS TO YOUR FREE MODEL
+                    # Examples:
+                    # "llama-3.3-70b-versatile"
+                    # "mixtral-8x7b-32768"
+                    # "gemma2-9b-it"
+                    # or whatever free/no-limit model you found
                     messages=messages,
                     max_tokens=600,
                     temperature=0.8,
                     top_p=0.9
                 )
+
                 ai_reply = response.choices[0].message.content.strip()
-                success = True
-
-            except Exception as e:
-                print(f"Primary model failed: {e}")
-
-                global used_oss_model, used_panic_key
-
-                # SECOND ATTEMPT: Switch to massive OSS model (last resort before key change)
-                if not used_oss_model:
-                    print("Switching to openai/gpt-oss-120b as last resort...")
-                    used_oss_model = True
-                    current_model = "openai/gpt-oss-120b"
-
-                    try:
-                        response = await groq_client.chat.completions.create(
-                            model=current_model,
-                            messages=messages,
-                            max_tokens=600,
-                            temperature=0.8,
-                            top_p=0.9
-                        )
-                        ai_reply = response.choices[0].message.content.strip()
-                        success = True
-                        await message.channel.send("(switched to massive OSS model — still cooking wars fr fr)")
-
-                    except Exception as e2:
-                        print(f"OSS model also failed: {e2}")
-
-                # THIRD ATTEMPT (optional): Panic key if you still have one
-                if not success and PANIC_API_GROQ and not used_panic_key:
-                    print("All models failed on primary key → switching to PANIC_API_GROQ")
-                    groq_client.api_key = PANIC_API_GROQ
-                    used_panic_key = True
-                    current_model = "llama-3.3-70b-versatile"  # back to fast model
-
-                    try:
-                        response = await groq_client.chat.completions.create(
-                            model=current_model,
-                            messages=messages,
-                            max_tokens=600,
-                            temperature=0.8,
-                            top_p=0.9
-                        )
-                        ai_reply = response.choices[0].message.content.strip()
-                        success = True
-                        await message.channel.send("(panic key activated — clan war never stops)")
-                    except Exception as e3:
-                        print(f"Panic key failed too: {e3}")
-
-                # Final failure
-                if not success:
-                    await message.channel.send("All APIs down... otenZ lost all aura :sob::sob::sob::sob::sob::sob::sob:")
-                    return  # no history save
-
-                # Success! (from any path)
                 if len(ai_reply) > 2000:
                     ai_reply = ai_reply[:1997] + "..."
 
                 await message.channel.send(ai_reply)
 
-                # Save history
+                # Save to history
                 add_to_history(channel_id, "user", user_content)
                 add_to_history(channel_id, "assistant", ai_reply)
 
+            except Exception as e:
+                print(f"Groq API error: {e}")
+                await message.channel.send(
+                    "API down... otenZ no aura today :broken_heart::broken_heart::broken_heart::broken_heart:")
+                # No retry, no switch — simple failure
+
             except Exception as primary_error:
                 # ... your existing failover code here ...
-                pass  # (keep your panic key logic unchanged)
-
+                pass
     # ------------------------------------------------------------------
     # ALWAYS process commands at the end (required by discord.py)
     # ------------------------------------------------------------------
