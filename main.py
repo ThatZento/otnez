@@ -238,4 +238,6 @@ async def removerole(ctx):
 # Run the Bot
 # ========================================
 
-# bot.run(DISCORD_TOKEN) handled by webserver
+if __name__ == '__main__':
+    print("Starting otenZ bot directly...")
+    bot.run(DISCORD_TOKEN)
