@@ -19,10 +19,24 @@ load_dotenv()
 # Load discord API key
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 # Load both Groq API keys + openai keys
-GROQ_API_KEY = os.getenv('GROQ_API_KEY')          # Primary key
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+PANIC_API_GROQ = os.getenv('PANIC_API_GROQ')  # Your single backup key
+
 if not GROQ_API_KEY:
     print("ERROR: GROQ_API_KEY not found in .env!")
     exit(1)
+
+if not PANIC_API_GROQ:
+    print("WARNING: PANIC_API_GROQ not set — no backup if primary fails.")
+
+# Start with primary key
+groq_client = AsyncOpenAI(
+    api_key=GROQ_API_KEY,
+    base_url="https://api.groq.com/openai/v1"
+)
+
+# Track if we've already switched to panic key
+used_panic_key = False
 
 # Role name used for !assign and !removerole commands
 AGARTHA_ROLE_NAME = "agartha"
@@ -63,12 +77,6 @@ intents.message_content = True  # To read message content
 
 # Create the bot with ! prefix
 bot = commands.Bot(command_prefix='!', intents=intents)
-
-# Initial client (Groq primary)
-groq_client = AsyncOpenAI(
-    api_key=GROQ_API_KEY,
-    base_url="https://api.groq.com/openai/v1"
-)
 
 # Simple file logging for debugging (all bot events go to discord.log)
 logging.basicConfig(handlers=[logging.FileHandler('discord.log', 'w', 'utf-8')], level=logging.DEBUG)
@@ -190,14 +198,9 @@ async def on_message(message):
                 messages.extend(history)
                 messages.append({"role": "user", "content": user_content})
 
-                # SINGLE API CALL — you control the model here
+                # MAIN API CALL
                 response = await groq_client.chat.completions.create(
-                    model="openai/gpt-oss-120b",  # ← CHANGE THIS TO YOUR FREE MODEL
-                    # Examples:
-                    # "llama-3.3-70b-versatile"
-                    # "mixtral-8x7b-32768"
-                    # "gemma2-9b-it"
-                    # or whatever free/no-limit model you found
+                    model="llama-3.3-70b-versatile",  # ← set your free/no-limit model
                     messages=messages,
                     max_tokens=600,
                     temperature=0.8,
@@ -210,15 +213,49 @@ async def on_message(message):
 
                 await message.channel.send(ai_reply)
 
-                # Save to history
+                # Save history
                 add_to_history(channel_id, "user", user_content)
                 add_to_history(channel_id, "assistant", ai_reply)
 
             except Exception as e:
-                print(f"Groq API error: {e}")
-                await message.channel.send(
-                    "API down... otenZ no aura today :broken_heart::broken_heart::broken_heart::broken_heart:")
-                # No retry, no switch — simple failure
+                print(f"Primary API failed: {e}")
+
+                global used_panic_key
+                # Only try panic key once
+                if not used_panic_key and PANIC_API_GROQ:
+                    print("Switching to single PANIC_API_GROQ key...")
+                    groq_client.api_key = PANIC_API_GROQ
+                    used_panic_key = True
+
+                    try:
+                        # Retry exact same request with panic key
+                        response = await groq_client.chat.completions.create(
+                            model="llama-3.3-70b-versatile",
+                            messages=messages,
+                            max_tokens=600,
+                            temperature=0.8,
+                            top_p=0.9
+                        )
+
+                        ai_reply = response.choices[0].message.content.strip()
+                        if len(ai_reply) > 2000:
+                            ai_reply = ai_reply[:1997] + "..."
+
+                        await message.channel.send(ai_reply + "\n(panic key activated — war never stops fr)")
+
+                        # Save history on success
+                        add_to_history(channel_id, "user", user_content)
+                        add_to_history(channel_id, "assistant", ai_reply)
+
+                    except Exception as e2:
+                        print(f"Panic key also failed: {e2}")
+                        await message.channel.send(
+                            "Both keys down... otenZ lost the war :sob::sob::sob::sob::sob::sob::sob:")
+                else:
+                    # Primary failed and no panic available (or already used)
+                    await message.channel.send(
+                        "API dead... no 3-stars today :broken_heart::broken_heart::broken_heart:")
+
 
             except Exception as primary_error:
                 # ... your existing failover code here ...
