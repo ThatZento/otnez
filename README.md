@@ -1,4 +1,4 @@
-# otenZ Discord Bot
+# otneZ Discord Bot
 
 A fully customizable, lightweight, and extensible Discord bot built with discord.py and Groq's fast inference API.
 
