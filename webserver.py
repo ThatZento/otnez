@@ -1,15 +1,21 @@
+# webserver.py (alternative version)
 from flask import Flask
-from threading import Thread
+import threading
+import os
+from main import bot, DISCORD_TOKEN  # import your bot and token
 
-app = Flask('')
+app = Flask(__name__)
+
 @app.route('/')
 def home():
-    return 'Bot is alive'
+    return "otenZ bot is alive and brainrotting! 67"
 
-def run():
-    app.run(host='0.0.0.0', port=8080)
+def run_bot():
+    bot.run(DISCORD_TOKEN)
 
+if __name__ == '__main__':
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
 
-def keep_alive():
-    t = Thread(target=run)
-    t.start()
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)

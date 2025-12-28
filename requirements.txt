@@ -1,4 +1,5 @@
 discord.py
-python_dotenv
-openai
+python-dotenv
+openai  # for the AsyncOpenAI client
+groq  # if you use groq package, otherwise not needed
 flask
